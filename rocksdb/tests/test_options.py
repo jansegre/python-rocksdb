@@ -1,6 +1,8 @@
-import unittest
 import sys
+import unittest
+
 import rocksdb
+
 
 class TestFilterPolicy(rocksdb.interfaces.FilterPolicy):
     def create_filter(self, keys):
