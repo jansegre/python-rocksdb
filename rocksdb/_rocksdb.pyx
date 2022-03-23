@@ -16,7 +16,6 @@ from cpython.unicode cimport PyUnicode_Decode
 from .std_memory cimport shared_ptr
 from . cimport options
 from . cimport merge_operator
-from . cimport filter_policy
 from . cimport comparator
 from . cimport slice_transform
 from . cimport cache
@@ -24,7 +23,6 @@ from . cimport logger
 from . cimport snapshot
 from . cimport db
 from . cimport iterator
-from . cimport backup
 from . cimport env
 from . cimport table_factory
 from . cimport memtablerep
@@ -46,7 +44,6 @@ from .status cimport Status
 import sys
 from .interfaces import MergeOperator as IMergeOperator
 from .interfaces import AssociativeMergeOperator as IAssociativeMergeOperator
-from .interfaces import FilterPolicy as IFilterPolicy
 from .interfaces import Comparator as IComparator
 from .interfaces import SliceTransform as ISliceTransform
 
@@ -61,8 +58,6 @@ from .errors import MergeInProgress
 from .errors import Incomplete
 
 import weakref
-
-ctypedef const filter_policy.FilterPolicy ConstFilterPolicy
 
 cdef extern from "cpp/utils.hpp" namespace "py_rocks":
     cdef const Slice* vector_data(vector[Slice]&)
@@ -213,117 +208,6 @@ cdef int compare_callback(
 
 BytewiseComparator = PyBytewiseComparator
 #########################################
-
-
-
-## Here comes the stuff for the filter policy
-@cython.internal
-cdef class PyFilterPolicy(object):
-    cdef object get_ob(self):
-        return None
-
-    cdef shared_ptr[ConstFilterPolicy] get_policy(self):
-        return shared_ptr[ConstFilterPolicy]()
-
-    cdef set_info_log(self, shared_ptr[logger.Logger] info_log):
-        pass
-
-@cython.internal
-cdef class PyGenericFilterPolicy(PyFilterPolicy):
-    cdef shared_ptr[filter_policy.FilterPolicyWrapper] policy
-    cdef object ob
-
-    def __cinit__(self, object ob):
-        if not isinstance(ob, IFilterPolicy):
-            raise TypeError("%s is not of type %s" % (ob, IFilterPolicy))
-
-        self.ob = ob
-        self.policy.reset(new filter_policy.FilterPolicyWrapper(
-                bytes_to_string(ob.name()),
-                <void*>ob,
-                create_filter_callback,
-                key_may_match_callback))
-
-    cdef object get_ob(self):
-        return self.ob
-
-    cdef shared_ptr[ConstFilterPolicy] get_policy(self):
-        return <shared_ptr[ConstFilterPolicy]>(self.policy)
-
-    cdef set_info_log(self, shared_ptr[logger.Logger] info_log):
-        self.policy.get().set_info_log(info_log)
-
-
-cdef void create_filter_callback(
-    void* ctx,
-    logger.Logger* log,
-    string& error_msg,
-    const Slice* keys,
-    int n,
-    string* dst) with gil:
-
-    try:
-        ret = (<object>ctx).create_filter(
-            [slice_to_bytes(keys[i]) for i in range(n)])
-        dst.append(bytes_to_string(ret))
-    except BaseException as error:
-        tb = traceback.format_exc()
-        logger.Log(log, "Error in create filter callback: %s", <bytes>tb)
-        error_msg.assign(<bytes>str(error))
-
-cdef cpp_bool key_may_match_callback(
-    void* ctx,
-    logger.Logger* log,
-    string& error_msg,
-    const Slice& key,
-    const Slice& filt) with gil:
-
-    try:
-        return (<object>ctx).key_may_match(
-            slice_to_bytes(key),
-            slice_to_bytes(filt))
-    except BaseException as error:
-        tb = traceback.format_exc()
-        logger.Log(log, "Error in key_mach_match callback: %s", <bytes>tb)
-        error_msg.assign(<bytes>str(error))
-
-@cython.internal
-cdef class PyBloomFilterPolicy(PyFilterPolicy):
-    cdef shared_ptr[ConstFilterPolicy] policy
-
-    def __cinit__(self, int bits_per_key):
-        self.policy.reset(filter_policy.NewBloomFilterPolicy(bits_per_key))
-
-    def name(self):
-        return PyBytes_FromString(self.policy.get().Name())
-
-    def create_filter(self, keys):
-        cdef string dst
-        cdef vector[Slice] c_keys
-
-        for key in keys:
-            c_keys.push_back(bytes_to_slice(key))
-
-        self.policy.get().CreateFilter(
-            vector_data(c_keys),
-            <int>c_keys.size(),
-            cython.address(dst))
-
-        return string_to_bytes(dst)
-
-    def key_may_match(self, key, filter_):
-        return self.policy.get().KeyMayMatch(
-            bytes_to_slice(key),
-            bytes_to_slice(filter_))
-
-    cdef object get_ob(self):
-        return self
-
-    cdef shared_ptr[ConstFilterPolicy] get_policy(self):
-        return self.policy
-
-BloomFilterPolicy = PyBloomFilterPolicy
-#############################################
 
 
 
@@ -580,15 +464,12 @@ cdef class PyTableFactory(object):
         pass
 
 cdef class BlockBasedTableFactory(PyTableFactory):
-    cdef PyFilterPolicy py_filter_policy
-
     def __init__(self,
             index_type='binary_search',
             py_bool hash_index_allow_collision=True,
             checksum='crc32',
             PyCache block_cache=None,
             PyCache block_cache_compressed=None,
-            filter_policy=None,
             no_block_cache=False,
             block_size=None,
             block_size_deviation=None,
@@ -655,23 +536,10 @@ cdef class BlockBasedTableFactory(PyTableFactory):
         if format_version is not None:
             table_options.format_version = format_version
 
-        # Set the filter_policy
-        self.py_filter_policy = None
-        if filter_policy is not None:
-            if isinstance(filter_policy, PyFilterPolicy):
-                if (<PyFilterPolicy?>filter_policy).get_policy().get() == NULL:
-                    raise Exception("Cannot set filter policy: %s" % filter_policy)
-                self.py_filter_policy = filter_policy
-            else:
-                self.py_filter_policy = PyGenericFilterPolicy(filter_policy)
-
-            table_options.filter_policy = self.py_filter_policy.get_policy()
-
         self.factory.reset(table_factory.NewBlockBasedTableFactory(table_options))
 
     cdef set_info_log(self, shared_ptr[logger.Logger] info_log):
-        if self.py_filter_policy is not None:
-            self.py_filter_policy.set_info_log(info_log)
+        pass
 
 cdef class PlainTableFactory(PyTableFactory):
     def __init__(
@@ -1036,12 +904,6 @@ cdef class ColumnFamilyOptions(object):
         def __set__(self, value):
             self.copts.level0_stop_writes_trigger = value
 
-    property max_mem_compaction_level:
-        def __get__(self):
-            return self.copts.max_mem_compaction_level
-        def __set__(self, value):
-            self.copts.max_mem_compaction_level = value
-
     property target_file_size_base:
         def __get__(self):
             return self.copts.target_file_size_base
@@ -1163,13 +1025,6 @@ cdef class ColumnFamilyOptions(object):
                     uopts.stop_style = kCompactionStopStyleTotalSize
                 else:
                     raise Exception("Unknown compaction style")
-
-    # Deprecate
-    #  property filter_deletes:
-        #  def __get__(self):
-            #  return self.copts.filter_deletes
-        #  def __set__(self, value):
-            #  self.copts.filter_deletes = value
 
     property max_sequential_skip_in_iterations:
         def __get__(self):
@@ -2160,9 +2015,6 @@ cdef class DB(object):
             fill_cache=True,
             snapshot=None,
             read_tier="all",
-            total_order_seek=False,
-            iterate_lower_bound=None,
-            iterate_upper_bound=None
     ):
 
         # TODO: Is this really effiencet ?
@@ -2173,9 +2025,6 @@ cdef class DB(object):
         opts.fill_cache = py_opts['fill_cache']
         if py_opts['snapshot'] is not None:
             opts.snapshot = (<Snapshot?>(py_opts['snapshot'])).ptr
-
-        if py_opts['total_order_seek'] is not None:
-            opts.total_order_seek = py_opts['total_order_seek']
 
         if py_opts['read_tier'] == "all":
             opts.read_tier = options.kReadAllTier
@@ -2193,12 +2042,6 @@ cdef class DB(object):
                 return str.encode(str(iterate_bound))
             else:
                 return None
-        if py_opts['iterate_lower_bound'] is not None:
-            # Calling this new without corresponding delete causes a memory leak.
-            # TODO: Figure out where the object should be destroyed without causing segfaults
-            opts.iterate_lower_bound = bytes_to_new_slice(make_bytes(py_opts['iterate_lower_bound']))
-        if py_opts['iterate_upper_bound'] is not None:
-            opts.iterate_upper_bound = bytes_to_new_slice(make_bytes(py_opts['iterate_upper_bound']))
 
         return opts
 
@@ -2418,107 +2261,4 @@ cdef class ReversedIterator(object):
         with nogil:
             self.it.ptr.Prev()
         check_status(self.it.ptr.status())
-        return ret
-
-cdef class BackupEngine(object):
-    cdef backup.BackupEngine* engine
-
-    def  __cinit__(self, backup_dir):
-        cdef Status st
-        cdef string c_backup_dir
-        self.engine = NULL
-
-        c_backup_dir = path_to_string(backup_dir)
-        st = backup.BackupEngine_Open(
-            env.Env_Default(),
-            backup.BackupableDBOptions(c_backup_dir),
-            cython.address(self.engine))
-
-        check_status(st)
-
-    def __dealloc__(self):
-        if not self.engine == NULL:
-            with nogil:
-                del self.engine
-
-    def create_backup(self, DB db, flush_before_backup=False):
-        cdef Status st
-        cdef cpp_bool c_flush_before_backup
-
-        c_flush_before_backup = flush_before_backup
-
-        with nogil:
-            st = self.engine.CreateNewBackup(db.db, c_flush_before_backup)
-        check_status(st)
-
-    def restore_backup(self, backup_id, db_dir, wal_dir):
-        cdef Status st
-        cdef backup.BackupID c_backup_id
-        cdef string c_db_dir
-        cdef string c_wal_dir
-
-        c_backup_id = backup_id
-        c_db_dir = path_to_string(db_dir)
-        c_wal_dir = path_to_string(wal_dir)
-
-        with nogil:
-            st = self.engine.RestoreDBFromBackup(
-                c_backup_id,
-                c_db_dir,
-                c_wal_dir)
-
-        check_status(st)
-
-    def restore_latest_backup(self, db_dir, wal_dir):
-        cdef Status st
-        cdef string c_db_dir
-        cdef string c_wal_dir
-
-        c_db_dir = path_to_string(db_dir)
-        c_wal_dir = path_to_string(wal_dir)
-
-        with nogil:
-            st = self.engine.RestoreDBFromLatestBackup(c_db_dir, c_wal_dir)
-
-        check_status(st)
-
-    def stop_backup(self):
-        with nogil:
-            self.engine.StopBackup()
-
-    def purge_old_backups(self, num_backups_to_keep):
-        cdef Status st
-        cdef uint32_t c_num_backups_to_keep
-
-        c_num_backups_to_keep = num_backups_to_keep
-
-        with nogil:
-            st = self.engine.PurgeOldBackups(c_num_backups_to_keep)
-        check_status(st)
-
-    def delete_backup(self, backup_id):
-        cdef Status st
-        cdef backup.BackupID c_backup_id
-
-        c_backup_id = backup_id
-
-        with nogil:
-            st = self.engine.DeleteBackup(c_backup_id)
-
-        check_status(st)
-
-    def get_backup_info(self):
-        cdef vector[backup.BackupInfo] backup_info
-
-        with nogil:
-            self.engine.GetBackupInfo(cython.address(backup_info))
-
-        ret = []
-        for ob in backup_info:
-            t = {}
-            t['backup_id'] = ob.backup_id
-            t['timestamp'] = ob.timestamp
-            t['size'] = ob.size
-            ret.append(t)
-
         return ret
