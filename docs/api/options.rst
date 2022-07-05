@@ -909,19 +909,13 @@ https://github.com/facebook/rocksdb/wiki/A-Tutorial-of-RocksDB-SST-formats
 
     Wraps BlockBasedTableFactory of RocksDB.
 
-    .. py:method:: __init__(index_type='binary_search', hash_index_allow_collision=True, checksum='crc32', block_cache, block_cache_compressed, filter_policy=None, no_block_cache=False, block_size=None, block_size_deviation=None, block_restart_interval=None, whole_key_filtering=None, enable_index_compression=None, cache_index_and_filter_blocks=None, format_version=None)
+    .. py:method:: __init__(index_type='binary_search', checksum='crc32', block_cache, block_cache_compressed, filter_policy=None, no_block_cache=False, block_size=None, block_size_deviation=None, block_restart_interval=None, whole_key_filtering=None, enable_index_compression=None, cache_index_and_filter_blocks=None, format_version=None)
 
     :param string index_type:
         * ``binary_search`` a space efficient index block that is optimized
           for binary-search-based index.
         * ``hash_search`` the hash index. If enabled, will do hash lookup
           when `Options.prefix_extractor` is provided.
-
-    :param bool hash_index_allow_collision:
-        Influence the behavior when ``hash_search`` is used.
-        If ``False``, stores a precise prefix to block range mapping.
-        If ``True``, does not store prefix and allows prefix hash collision
-        (less memory consumption)
 
     :param string checksum:
         Use the specified checksum type. Newly created table files will be

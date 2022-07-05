@@ -466,7 +466,6 @@ cdef class PyTableFactory(object):
 cdef class BlockBasedTableFactory(PyTableFactory):
     def __init__(self,
             index_type='binary_search',
-            py_bool hash_index_allow_collision=True,
             checksum='crc32',
             PyCache block_cache=None,
             PyCache block_cache_compressed=None,
@@ -487,11 +486,6 @@ cdef class BlockBasedTableFactory(PyTableFactory):
             table_options.index_type = table_factory.kHashSearch
         else:
             raise ValueError("Unknown index_type: %s" % index_type)
-
-        if hash_index_allow_collision:
-            table_options.hash_index_allow_collision = True
-        else:
-            table_options.hash_index_allow_collision = False
 
         if checksum == 'crc32':
             table_options.checksum = table_factory.kCRC32c
