@@ -10,7 +10,7 @@ from pkgconfig import PackageNotFoundError
 from setuptools import Extension, setup
 
 extra_compile_args = [
-    '-std=c++11',
+    '-std=c++17',
     '-O3',
     '-Wall',
     '-Wextra',
