@@ -468,7 +468,6 @@ cdef class BlockBasedTableFactory(PyTableFactory):
             index_type='binary_search',
             checksum='crc32',
             PyCache block_cache=None,
-            PyCache block_cache_compressed=None,
             no_block_cache=False,
             block_size=None,
             block_size_deviation=None,
@@ -496,9 +495,6 @@ cdef class BlockBasedTableFactory(PyTableFactory):
 
         if block_cache is not None:
             table_options.block_cache = block_cache.get_cache()
-
-        if block_cache_compressed is not None:
-            table_options.block_cache_compressed = block_cache_compressed.get_cache()
 
         if no_block_cache:
             table_options.no_block_cache = True
