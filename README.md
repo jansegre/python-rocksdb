@@ -1,5 +1,6 @@
-python-rocksdb
-==============
+# python-rocksdb
+
+[![test-status](../../actions/workflows/test.yml/badge.svg)](../../actions/workflows/test.yml)
 
 This project is based off the efforts from
 https://github.com/NightTsarina/python-rocksdb and basically strips backup

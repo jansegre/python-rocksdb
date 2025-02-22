@@ -1,55 +1,48 @@
-#!/usr/bin/env python3
-
 import os
 import platform
-import sys
-
-import pkgconfig
+import subprocess
 from Cython.Build import cythonize
-from pkgconfig import PackageNotFoundError
-from setuptools import Extension, setup
+from setuptools import setup, Extension
 
+def get_brew_prefix(package):
+    try:
+        return subprocess.check_output(["brew", "--prefix", package], universal_newlines=True).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+include_dirs = []
+library_dirs = []
 extra_compile_args = [
-    '-std=c++17',
-    '-O3',
-    '-Wall',
-    '-Wextra',
-    '-Wconversion',
-    '-fno-strict-aliasing',
-    '-fno-rtti',
+    "-std=c++17",
+    "-O2",
+    "-fno-strict-aliasing",
+    "-fno-rtti",
+    "-Wno-unreachable-code-fallthrough",
 ]
 
-if platform.system() == 'Darwin':
-    extra_compile_args += ['-mmacosx-version-min=10.7', '-stdlib=libc++']
+if platform.system() == "Darwin":
+    extra_compile_args.extend([
+        "-mmacosx-version-min=10.7",
+        "-stdlib=libc++",
+        "-Wno-unreachable-code",
+    ])
+    for dep in ["rocksdb", "snappy", "lz4"]:
+        dep_prefix = get_brew_prefix(dep)
+        if dep_prefix:
+            include_dirs.append(os.path.join(dep_prefix, "include"))
+            library_dirs.append(os.path.join(dep_prefix, "lib"))
+else:
+    extra_compile_args.extend([
+        "-Wno-dangling-pointer",
+        "-Wno-maybe-uninitialized",
+    ])
 
-if sys.version_info < (3 , 0):
-    raise Exception("python-rocksdb requires Python 3.x")
-
-rocksdb_extension = Extension(
-    'rocksdb._rocksdb',
-    [
-        'rocksdb/_rocksdb.pyx',
-    ],
+setup(ext_modules=cythonize([Extension(
+    "rocksdb._rocksdb",
+    ["rocksdb/_rocksdb.pyx"],
+    include_dirs=include_dirs,
+    library_dirs=library_dirs,
     extra_compile_args=extra_compile_args,
-    language='c++',
-    libraries=['rocksdb'],
-)
-
-try:
-    pkgconfig.configure_extension(rocksdb_extension, "rocksdb")
-except PackageNotFoundError:
-    include_path = os.environ.get("INCLUDE_PATH")
-    library_path = os.environ.get("LIBRARY_PATH")
-
-    rocksdb_extension.include_dirs += include_path.split(os.pathsep) if include_path else []
-    rocksdb_extension.library_dirs += library_path.split(os.pathsep) if library_path else []
-    rocksdb_extension.libraries += [
-        'snappy',
-        'bz2',
-        'z',
-        'lz4',
-    ]
-
-setup(
-    ext_modules=cythonize([rocksdb_extension]),
-)
+    language="c++",
+    libraries=["rocksdb", "snappy", "bz2", "z", "lz4"],
+)]))
