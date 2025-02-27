@@ -60,7 +60,7 @@ jobs:
           sudo make install-headers PREFIX=${{ env.LIBROCKSDB_PATH }}
 
   test-linux:
-    name: Test on Python ${{ matrix.python-version}} with librocksdb-${{ matrix.rocksdb-version }}
+    name: Test (Python ${{ matrix.python-version }} with librocksdb-${{ matrix.rocksdb-version }})
     needs: librocksdb
     runs-on: ubuntu-latest
     env:
@@ -107,11 +107,14 @@ jobs:
           uvx pytest
 
   test-macos:
-    name: Test on Python ${{ matrix.python-version}} with librocksdb from homebrew
-    runs-on: macos-latest
+    name: Test (Python ${{ matrix.python-version }} with macOS ${{ matrix.os.arch }})
+    runs-on: ${{ matrix.os.runner }}
     strategy:
       fail-fast: false
       matrix:
+        os:
+          - { arch: 'Intel', runner: 'macos-13' }
+          - { arch: 'Arm', runner: 'macos-latest' }
         python-version: ['3.10', '3.11', '3.12', '3.13']
 
     steps:
@@ -137,28 +140,28 @@ jobs:
           uvx pytest
 
   test-debian:
-    name: Test on Python ${{ matrix.python-version}} with Debian ${{ matrix.debian-dist }} librocksdb
-    runs-on: ubuntu-latest
+    name: Test (Python ${{ matrix.python-version }} with Debian ${{ matrix.debian-dist }} ${{ matrix.os.arch }} librocksdb)
+    runs-on: ${{ matrix.os.runner }}
     container: debian:${{ matrix.debian-dist }}-slim
     strategy:
       fail-fast: false
       matrix:
+        os:
+          - { arch: 'x64', runner: 'ubuntu-latest' }
+          - { arch: 'arm', runner: 'ubuntu-24.04-arm' }
         python-version: ['3.10', '3.11', '3.12', '3.13']
         debian-dist: [bullseye, bookworm]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - run: apt update
+      - run: apt install -y nodejs
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: false
 
       - name: Install libraries
-        run: |
-          apt update
-          apt install -y build-essential librocksdb-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
+        run: apt install -y build-essential librocksdb-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
 
       - name: Build python-rocksdb
         run: |
