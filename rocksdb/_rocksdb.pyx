@@ -2165,6 +2165,8 @@ cdef class BaseIterator(object):
         return ret
 
     def get(self):
+        if not self.ptr.Valid():
+            return None
         cdef object ret = self.get_ob()
         return ret
 
